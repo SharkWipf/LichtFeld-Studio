@@ -2,15 +2,16 @@
  *
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
+#include "core_new/console_overlay.hpp"
 #include "memory_arena.hpp"
+#include <algorithm>
+#include <cstring>
 #include <cuda_runtime.h>
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
-#include <algorithm>
 #include <thread>
-#include <cstring>
 
 namespace lfs::core {
 
@@ -26,18 +27,24 @@ RasterizerMemoryArena::RasterizerMemoryArena(const Config& cfg)
     int device;
     cudaGetDevice(&device);
     if (!is_vmm_supported(device)) {
-        std::cerr << "[RasterizerMemoryArena] WARNING: VMM not supported, falling back to smaller allocation\n";
+        {
+            ConsoleOverlay::ScopedSuspend overlay;
+            std::cerr << "[RasterizerMemoryArena] WARNING: VMM not supported, falling back to smaller allocation\n";
+        }
         config_.initial_commit = 128 << 20;  // Smaller initial if no VMM
         config_.max_physical = 4ULL << 30;   // Lower max if no VMM
     }
 
-    std::cout << "[RasterizerMemoryArena] Created with config:\n"
-              << "  Virtual size: " << (config_.virtual_size >> 30) << " GB (costs no memory!)\n"
-              << "  Initial commit: " << (config_.initial_commit >> 20) << " MB\n"
-              << "  Max physical: " << (config_.max_physical >> 30) << " GB\n"
-              << "  Granularity: " << (config_.granularity >> 20) << " MB\n"
-              << "  Alignment: " << config_.alignment << " bytes\n"
-              << "  Log interval: every " << config_.log_interval << " frames\n";
+    {
+        ConsoleOverlay::ScopedSuspend overlay;
+        std::cout << "[RasterizerMemoryArena] Created with config:\n"
+                  << "  Virtual size: " << (config_.virtual_size >> 30) << " GB (costs no memory!)\n"
+                  << "  Initial commit: " << (config_.initial_commit >> 20) << " MB\n"
+                  << "  Max physical: " << (config_.max_physical >> 30) << " GB\n"
+                  << "  Granularity: " << (config_.granularity >> 20) << " MB\n"
+                  << "  Alignment: " << config_.alignment << " bytes\n"
+                  << "  Log interval: every " << config_.log_interval << " frames\n";
+    }
 }
 
 RasterizerMemoryArena::~RasterizerMemoryArena() {
@@ -268,11 +275,14 @@ void RasterizerMemoryArena::log_memory_status(uint64_t frame_id, bool force) {
     }
 
     // Log compact status
-    std::cout << "[Arena Frame " << frame_id << "] "
-              << committed_mb << " MB committed, "
-              << peak_period_mb << " MB peak ("
-              << std::fixed << std::setprecision(0) << utilization << "% used), "
-              << arena.realloc_count.load() << " reallocs\n";
+    {
+        ConsoleOverlay::ScopedSuspend overlay;
+        std::cout << "[Arena Frame " << frame_id << "] "
+                  << committed_mb << " MB committed, "
+                  << peak_period_mb << " MB peak ("
+                  << std::fixed << std::setprecision(0) << utilization << "% used), "
+                  << arena.realloc_count.load() << " reallocs\n";
+    }
 
     // Reset period peak for next logging interval
     arena.peak_usage_period.store(0, std::memory_order_release);
@@ -365,7 +375,10 @@ void RasterizerMemoryArena::emergency_cleanup() {
     std::lock_guard<std::mutex> lock1(arena_mutex_);
     std::lock_guard<std::mutex> lock2(frame_mutex_);
 
-    std::cout << "\n[RasterizerMemoryArena] ⚠️  EMERGENCY CLEANUP ⚠️" << std::endl;
+    {
+        ConsoleOverlay::ScopedSuspend overlay;
+        std::cout << "\n[RasterizerMemoryArena] ⚠️  EMERGENCY CLEANUP ⚠️" << std::endl;
+    }
 
     // Clear all inactive frames
     auto it = frame_contexts_.begin();
@@ -382,8 +395,11 @@ void RasterizerMemoryArena::emergency_cleanup() {
         if (arena) {
             decommit_unused_memory(*arena);  // Check offset before resetting
             arena->offset.store(0, std::memory_order_release);  // Now safe to reset
-            std::cout << "  Reset arena on device " << device
-                     << " (committed: " << (arena->committed_size >> 20) << " MB)" << std::endl;
+            {
+                ConsoleOverlay::ScopedSuspend overlay;
+                std::cout << "  Reset arena on device " << device
+                          << " (committed: " << (arena->committed_size >> 20) << " MB)" << std::endl;
+            }
         }
     }
 
@@ -396,7 +412,10 @@ void RasterizerMemoryArena::emergency_cleanup() {
         cudaDeviceSynchronize();
     }
 
-    std::cout << "[RasterizerMemoryArena] Emergency cleanup completed\n" << std::endl;
+    {
+        ConsoleOverlay::ScopedSuspend overlay;
+        std::cout << "[RasterizerMemoryArena] Emergency cleanup completed\n" << std::endl;
+    }
 }
 
 RasterizerMemoryArena::Arena& RasterizerMemoryArena::get_or_create_arena(int device) {
@@ -435,16 +454,22 @@ RasterizerMemoryArena::Arena& RasterizerMemoryArena::get_or_create_arena(int dev
             result = cuMemAddressReserve(&arena.d_ptr, arena.virtual_size, 0, 0, 0);
             if (result != CUDA_SUCCESS) {
                 // Fall back to traditional allocation
-                std::cout << "[RasterizerMemoryArena] VMM reservation failed, using traditional allocation\n";
+                {
+                    ConsoleOverlay::ScopedSuspend overlay;
+                    std::cout << "[RasterizerMemoryArena] VMM reservation failed, using traditional allocation\n";
+                }
                 arena.d_ptr = 0;
                 arena.virtual_size = 0;
                 // Continue with traditional allocation below
             } else {
-                std::cout << "\n========================================\n"
-                          << "[RasterizerMemoryArena] VMM INITIALIZATION\n"
-                          << "  Device: " << device << "\n"
-                          << "  Virtual space reserved: " << (arena.virtual_size >> 30)
-                          << " GB (costs NO memory!)\n";
+                {
+                    ConsoleOverlay::ScopedSuspend overlay;
+                    std::cout << "\n========================================\n"
+                              << "[RasterizerMemoryArena] VMM INITIALIZATION\n"
+                              << "  Device: " << device << "\n"
+                              << "  Virtual space reserved: " << (arena.virtual_size >> 30)
+                              << " GB (costs NO memory!)\n";
+                }
 
                 // Commit initial physical memory
                 if (!commit_more_memory(arena, config_.initial_commit)) {
@@ -452,11 +477,17 @@ RasterizerMemoryArena::Arena& RasterizerMemoryArena::get_or_create_arena(int dev
                     cuMemAddressFree(arena.d_ptr, arena.virtual_size);
                     arena.d_ptr = 0;
                     arena.virtual_size = 0;
-                    std::cout << "  Initial commit failed, falling back to traditional allocation\n";
+                    {
+                        ConsoleOverlay::ScopedSuspend overlay;
+                        std::cout << "  Initial commit failed, falling back to traditional allocation\n";
+                    }
                 } else {
                     arena.generation = generation_counter_.fetch_add(1, std::memory_order_relaxed);
                     arena.offset.store(0, std::memory_order_release);
-                    std::cout << "========================================\n" << std::endl;
+                    {
+                        ConsoleOverlay::ScopedSuspend overlay;
+                        std::cout << "========================================\n" << std::endl;
+                    }
                     return *arena_ptr;
                 }
             }
@@ -489,6 +520,7 @@ RasterizerMemoryArena::Arena& RasterizerMemoryArena::get_or_create_arena(int dev
         while (initial_size >= (64 << 20) && !allocated) {
             err = cudaMalloc(&arena.fallback_buffer, initial_size);
             if (err == cudaSuccess) {
+                ConsoleOverlay::ScopedSuspend overlay;
                 printf("[TRACKED] Arena cudaMalloc: %.2f MB\n", initial_size / (1024.0*1024));
             }
             if (err == cudaSuccess) {
@@ -498,19 +530,28 @@ RasterizerMemoryArena::Arena& RasterizerMemoryArena::get_or_create_arena(int dev
                 arena.offset.store(0, std::memory_order_release);
                 allocated = true;
 
-                std::cout << "\n========================================\n"
-                          << "[RasterizerMemoryArena] TRADITIONAL ALLOCATION (No VMM)\n"
-                          << "  Device: " << device << "\n"
-                          << "  Size: " << (initial_size >> 20) << " MB\n"
-                          << "  GPU free before: " << (free_memory >> 20) << " MB\n";
+                {
+                    ConsoleOverlay::ScopedSuspend overlay;
+                    std::cout << "\n========================================\n"
+                              << "[RasterizerMemoryArena] TRADITIONAL ALLOCATION (No VMM)\n"
+                              << "  Device: " << device << "\n"
+                              << "  Size: " << (initial_size >> 20) << " MB\n"
+                              << "  GPU free before: " << (free_memory >> 20) << " MB\n";
+                }
 
                 cudaMemGetInfo(&free_memory, &total_memory);
-                std::cout << "  GPU free after: " << (free_memory >> 20) << " MB\n"
-                          << "========================================\n" << std::endl;
+                {
+                    ConsoleOverlay::ScopedSuspend overlay;
+                    std::cout << "  GPU free after: " << (free_memory >> 20) << " MB\n"
+                              << "========================================\n" << std::endl;
+                }
             } else {
                 initial_size /= 2;
-                std::cout << "[RasterizerMemoryArena] Allocation failed, trying "
-                          << (initial_size >> 20) << " MB" << std::endl;
+                {
+                    ConsoleOverlay::ScopedSuspend overlay;
+                    std::cout << "[RasterizerMemoryArena] Allocation failed, trying "
+                              << (initial_size >> 20) << " MB" << std::endl;
+                }
             }
         }
 
@@ -523,6 +564,7 @@ RasterizerMemoryArena::Arena& RasterizerMemoryArena::get_or_create_arena(int dev
 }
 
 bool RasterizerMemoryArena::commit_more_memory(Arena& arena, size_t required_size) {
+    ConsoleOverlay::ScopedSuspend overlay;
     // Only for VMM-enabled arenas
     if (arena.d_ptr == 0) {
         return false;
@@ -736,11 +778,17 @@ void RasterizerMemoryArena::decommit_unused_memory(Arena& arena) {
         arena.chunks.erase(arena.chunks.begin() + new_size, arena.chunks.end());
         arena.committed_size -= total_freed;
 
-        std::cout << "[RasterizerMemoryArena] Decommitted " << (total_freed >> 20)
-                  << " MB (freed " << chunks_to_remove << " chunks), "
-                  << "arena now at " << (arena.committed_size >> 20) << " MB" << std::endl;
+        {
+            ConsoleOverlay::ScopedSuspend overlay;
+            std::cout << "[RasterizerMemoryArena] Decommitted " << (total_freed >> 20)
+                      << " MB (freed " << chunks_to_remove << " chunks), "
+                      << "arena now at " << (arena.committed_size >> 20) << " MB" << std::endl;
+        }
     } else {
-        std::cout << "[RasterizerMemoryArena] No unused chunks to decommit (all in use)" << std::endl;
+        {
+            ConsoleOverlay::ScopedSuspend overlay;
+            std::cout << "[RasterizerMemoryArena] No unused chunks to decommit (all in use)" << std::endl;
+        }
     }
 
     // Reset peak usage tracking
@@ -834,6 +882,7 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
             // First attempts: 2x needed to avoid repeated allocations
             growth_amount = growth_needed * 2;
             if (retry > 0) {
+                ConsoleOverlay::ScopedSuspend overlay;
                 std::cout << "[RasterizerMemoryArena] Retry " << retry
                           << ": attempting growth of " << (growth_amount >> 20)
                           << " MB (2x needed)\n";
@@ -841,9 +890,12 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
         } else {
             // Final attempts: minimal growth, just what's needed plus 50% headroom
             growth_amount = (growth_needed * 3) / 2;
-            std::cout << "[RasterizerMemoryArena] Retry " << retry
-                      << ": attempting minimal growth of " << (growth_amount >> 20)
-                      << " MB (1.5x needed)\n";
+            {
+                ConsoleOverlay::ScopedSuspend overlay;
+                std::cout << "[RasterizerMemoryArena] Retry " << retry
+                          << ": attempting minimal growth of " << (growth_amount >> 20)
+                          << " MB (1.5x needed)\n";
+            }
         }
 
         // Cap at max physical
@@ -852,9 +904,12 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
 
         if (growth_amount == 0) {
             // Can't grow anymore - we're at max capacity
-            std::cerr << "\n[RasterizerMemoryArena] ⚠️  CAPACITY LIMIT REACHED ⚠️\n"
-                      << "Arena at maximum size: " << (config_.max_physical >> 20) << " MB\n"
-                      << "Cannot allocate additional: " << (aligned_size >> 20) << " MB\n";
+            {
+                ConsoleOverlay::ScopedSuspend overlay;
+                std::cerr << "\n[RasterizerMemoryArena] ⚠️  CAPACITY LIMIT REACHED ⚠️\n"
+                          << "Arena at maximum size: " << (config_.max_physical >> 20) << " MB\n"
+                          << "Cannot allocate additional: " << (aligned_size >> 20) << " MB\n";
+            }
             return nullptr;
         }
 
@@ -877,8 +932,11 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
             // Check if it's a temporary failure or permanent
             if (retry < MAX_RETRIES - 1) {
                 // Try emergency cleanup and retry
-                std::cout << "[RasterizerMemoryArena] Growth failed, attempting cleanup and retry "
-                          << (retry + 1) << "/" << MAX_RETRIES << "\n";
+                {
+                    ConsoleOverlay::ScopedSuspend overlay;
+                    std::cout << "[RasterizerMemoryArena] Growth failed, attempting cleanup and retry "
+                              << (retry + 1) << "/" << MAX_RETRIES << "\n";
+                }
 
                 empty_cuda_cache();
                 cudaDeviceSynchronize();
@@ -888,13 +946,16 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
                 continue;
             } else {
                 // All retries exhausted - return nullptr for graceful degradation
-                std::cerr << "\n[RasterizerMemoryArena] ⚠️  OUT OF MEMORY ⚠️\n"
-                          << "Failed to grow arena after " << MAX_RETRIES << " attempts\n"
-                          << "  Requested allocation: " << (size >> 20) << " MB\n"
-                          << "  Current usage: " << (current_offset >> 20) << " MB\n"
-                          << "  Committed size: " << (arena.committed_size >> 20) << " MB\n"
-                          << "  Max capacity: " << (config_.max_physical >> 20) << " MB\n"
-                          << "\n⚠️  Returning nullptr - caller should handle gracefully\n\n";
+                {
+                    ConsoleOverlay::ScopedSuspend overlay;
+                    std::cerr << "\n[RasterizerMemoryArena] ⚠️  OUT OF MEMORY ⚠️\n"
+                              << "Failed to grow arena after " << MAX_RETRIES << " attempts\n"
+                              << "  Requested allocation: " << (size >> 20) << " MB\n"
+                              << "  Current usage: " << (current_offset >> 20) << " MB\n"
+                              << "  Committed size: " << (arena.committed_size >> 20) << " MB\n"
+                              << "  Max capacity: " << (config_.max_physical >> 20) << " MB\n"
+                              << "\n⚠️  Returning nullptr - caller should handle gracefully\n\n";
+                }
                 return nullptr;
             }
         }
@@ -903,11 +964,15 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
     }
 
     // Should never reach here - return nullptr for safety
-    std::cerr << "[RasterizerMemoryArena] ERROR: Allocation loop exhausted, returning nullptr\n";
+    {
+        ConsoleOverlay::ScopedSuspend overlay;
+        std::cerr << "[RasterizerMemoryArena] ERROR: Allocation loop exhausted, returning nullptr\n";
+    }
     return nullptr;
 }
 
 bool RasterizerMemoryArena::grow_arena(Arena& arena, size_t required_size) {
+    ConsoleOverlay::ScopedSuspend overlay;
     // Called with arena_mutex_ held
     // This is the fallback for non-VMM systems
 
@@ -1072,6 +1137,7 @@ RasterizerMemoryArena::MemoryInfo RasterizerMemoryArena::get_memory_info() const
 }
 
 void RasterizerMemoryArena::dump_statistics() const {
+    ConsoleOverlay::ScopedSuspend overlay;
     auto stats = get_statistics();
 
     std::stringstream ss;

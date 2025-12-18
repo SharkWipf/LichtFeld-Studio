@@ -4,11 +4,13 @@
 
 #pragma once
 
+#include "core_new/console_overlay.hpp"
 #include "external/indicators.hpp"
 #include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <string>
 
 namespace lfs::training {
     class TrainingProgress {
@@ -16,6 +18,33 @@ namespace lfs::training {
         std::chrono::steady_clock::time_point start_time_;
         int total_iterations_;
         int update_frequency_;
+
+        static void overlay_clear_cb(void* ctx) {
+            static_cast<TrainingProgress*>(ctx)->clear_overlay_line();
+        }
+
+        static void overlay_render_cb(void* ctx) {
+            static_cast<TrainingProgress*>(ctx)->render_overlay_line();
+        }
+
+        void clear_overlay_line() {
+            if (!progress_bar_ || progress_bar_->is_completed()) {
+                return;
+            }
+            size_t width = indicators::terminal_width();
+            if (width < 10 || width > 4096) {
+                width = 120;
+            }
+            std::cout << "\r" << std::string(width, ' ') << "\r";
+            std::cout.flush();
+        }
+
+        void render_overlay_line() {
+            if (!progress_bar_ || progress_bar_->is_completed()) {
+                return;
+            }
+            progress_bar_->print_progress();
+        }
 
     public:
         TrainingProgress(int total_iterations, int update_frequency = 100)
@@ -54,6 +83,11 @@ namespace lfs::training {
             progress_bar_->set_option(indicators::option::FontStyles(styles));
 
             start_time_ = std::chrono::steady_clock::now();
+
+            lfs::core::ConsoleOverlay::instance().set(
+                this,
+                &TrainingProgress::overlay_clear_cb,
+                &TrainingProgress::overlay_render_cb);
         }
 
         void update(int current_iteration, float loss, int splat_count, bool is_refining = false) {
@@ -78,6 +112,7 @@ namespace lfs::training {
         void pause() {
             if (!progress_bar_->is_completed()) {
                 progress_bar_->mark_as_completed();
+                lfs::core::ConsoleOverlay::ScopedSuspend overlay;
                 std::cout << std::endl;
             }
         }
@@ -93,6 +128,7 @@ namespace lfs::training {
             if (!progress_bar_->is_completed()) {
                 progress_bar_->set_progress(100);
                 progress_bar_->mark_as_completed();
+                lfs::core::ConsoleOverlay::ScopedSuspend overlay;
                 std::cout << std::endl;
             }
         }
@@ -105,27 +141,31 @@ namespace lfs::training {
 
             int iterations_used = (actual_iterations > 0) ? actual_iterations : total_iterations_;
 
-            std::cout << std::endl
+            {
+                lfs::core::ConsoleOverlay::ScopedSuspend overlay;
+                std::cout << std::endl
 #ifdef _WIN32
-                      << "* Training completed in "
+                          << "* Training completed in "
 #else
-                      << "✓ Training completed in "
+                          << "✓ Training completed in "
 #endif
-                      << std::fixed << std::setprecision(3) << elapsed << "s"
-                      << " (avg " << std::fixed << std::setprecision(1)
-                      << iterations_used / elapsed << " iter/s)"
-                      << std::endl
+                          << std::fixed << std::setprecision(3) << elapsed << "s"
+                          << " (avg " << std::fixed << std::setprecision(1)
+                          << iterations_used / elapsed << " iter/s)"
+                          << std::endl
 #ifdef _WIN32
-                      << "* Final splats: " << final_splats
+                          << "* Final splats: " << final_splats
 #else
-                      << "✓ Final splats: " << final_splats
+                          << "✓ Final splats: " << final_splats
 #endif
-                      << std::endl;
+                          << std::endl;
+            }
         }
 
         // Destructor ensures completion
         ~TrainingProgress() {
             complete();
+            lfs::core::ConsoleOverlay::instance().reset_if_ctx(this);
         }
     };
 } // namespace lfs::training

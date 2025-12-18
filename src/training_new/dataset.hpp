@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core_new/camera.hpp"
+#include "core_new/console_overlay.hpp"
 #include "core_new/tensor.hpp"
 #include <algorithm>
 #include <chrono>
@@ -213,8 +214,11 @@ public:
             }
         }
 
-        std::cout << "Dataset created with " << indices_.size()
-                  << " images (split: " << static_cast<int>(split_) << ")" << std::endl;
+        {
+            lfs::core::ConsoleOverlay::ScopedSuspend overlay;
+            std::cout << "Dataset created with " << indices_.size()
+                      << " images (split: " << static_cast<int>(split_) << ")" << std::endl;
+        }
     }
 
     /// Get single example by index

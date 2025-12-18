@@ -3,9 +3,10 @@
 
 #pragma once
 
+#include "allocation_profiler.hpp"
+#include "core_new/console_overlay.hpp"
 #include "core_new/logger.hpp"
 #include "gpu_arena_allocator.hpp"
-#include "allocation_profiler.hpp"
 #include <cuda_runtime.h>
 #include <memory>
 #include <mutex>
@@ -117,14 +118,20 @@ namespace lfs::core {
                 // Log large direct allocations
                 static std::atomic<size_t> direct_total{0};
                 direct_total += bytes;
-                printf("[POOL] Direct cudaMalloc: %.2f GB (total direct: %.2f GB)\n",
-                       bytes / (1024.0 * 1024.0 * 1024.0),
-                       direct_total.load() / (1024.0 * 1024.0 * 1024.0));
+                {
+                    ConsoleOverlay::ScopedSuspend overlay;
+                    printf("[POOL] Direct cudaMalloc: %.2f GB (total direct: %.2f GB)\n",
+                           bytes / (1024.0 * 1024.0 * 1024.0),
+                           direct_total.load() / (1024.0 * 1024.0 * 1024.0));
+                }
 
                 cudaError_t err = cudaMalloc(&ptr, bytes);
                 if (err != cudaSuccess) {
-                    printf("[POOL ERROR] cudaMalloc (direct) failed: %s\n", cudaGetErrorString(err));
-                    printf("[POOL ERROR] This might be due to fragmentation. Trying to free cached memory...\n");
+                    {
+                        ConsoleOverlay::ScopedSuspend overlay;
+                        printf("[POOL ERROR] cudaMalloc (direct) failed: %s\n", cudaGetErrorString(err));
+                        printf("[POOL ERROR] This might be due to fragmentation. Trying to free cached memory...\n");
+                    }
 
                     // CRITICAL: Free CUDA memory pool cache to release memory back to OS
                     // This releases memory from cudaMallocAsync pool that's cached but unused
@@ -137,20 +144,29 @@ namespace lfs::core {
                     cudaMemPool_t pool;
                     cudaDeviceGetDefaultMemPool(&pool, device);
                     cudaMemPoolTrimTo(pool, 0); // Release all unused memory
-                    printf("[POOL] Trimmed CUDA memory pool\n");
+                    {
+                        ConsoleOverlay::ScopedSuspend overlay;
+                        printf("[POOL] Trimmed CUDA memory pool\n");
+                    }
 #endif
 
                     // Check what memory is available after trimming
                     cudaMemGetInfo(&free_mem, &total_mem);
-                    printf("[POOL] After trim: free=%.2f GB, requested=%.2f GB\n",
-                           free_mem / (1024.0 * 1024.0 * 1024.0),
-                           bytes / (1024.0 * 1024.0 * 1024.0));
+                    {
+                        ConsoleOverlay::ScopedSuspend overlay;
+                        printf("[POOL] After trim: free=%.2f GB, requested=%.2f GB\n",
+                               free_mem / (1024.0 * 1024.0 * 1024.0),
+                               bytes / (1024.0 * 1024.0 * 1024.0));
+                    }
 
                     // Retry allocation
                     err = cudaMalloc(&ptr, bytes);
                     if (err != cudaSuccess) {
                         cudaMemGetInfo(&free_mem, &total_mem);
-                        printf("[POOL ERROR] Retry failed. Free mem: %.2f GB\n", free_mem / (1024.0 * 1024.0 * 1024.0));
+                        {
+                            ConsoleOverlay::ScopedSuspend overlay;
+                            printf("[POOL ERROR] Retry failed. Free mem: %.2f GB\n", free_mem / (1024.0 * 1024.0 * 1024.0));
+                        }
                         LOG_ERROR("cudaMalloc (direct) failed for {} bytes: {}", bytes, cudaGetErrorString(err));
                         LOG_ERROR("Even after trimming pool, not enough memory available.");
                         LOG_ERROR("This indicates intermediate tensors are holding memory.");
@@ -223,16 +239,19 @@ namespace lfs::core {
                     // Calculate non-pool memory (direct allocations + arena + driver overhead)
                     size_t non_pool = process_used - pool_reserved;
 
-                    printf("[POOL] After %d allocs (small:%d med:%d large:%d) | Pool: reserved=%.2f GB, used=%.2f GB | Cumulative allocated: %.2f GB | Process: %.2f GB (non-pool: %.2f GB)\n",
-                           alloc_count.load(),
-                           small_allocs.load(),
-                           medium_allocs.load(),
-                           large_allocs.load(),
-                           pool_reserved / (1024.0 * 1024.0 * 1024.0),
-                           pool_used / (1024.0 * 1024.0 * 1024.0),
-                           total_bytes_allocated.load() / (1024.0 * 1024.0 * 1024.0),
-                           process_used / (1024.0 * 1024.0 * 1024.0),
-                           non_pool / (1024.0 * 1024.0 * 1024.0));
+                    {
+                        ConsoleOverlay::ScopedSuspend overlay;
+                        printf("[POOL] After %d allocs (small:%d med:%d large:%d) | Pool: reserved=%.2f GB, used=%.2f GB | Cumulative allocated: %.2f GB | Process: %.2f GB (non-pool: %.2f GB)\n",
+                               alloc_count.load(),
+                               small_allocs.load(),
+                               medium_allocs.load(),
+                               large_allocs.load(),
+                               pool_reserved / (1024.0 * 1024.0 * 1024.0),
+                               pool_used / (1024.0 * 1024.0 * 1024.0),
+                               total_bytes_allocated.load() / (1024.0 * 1024.0 * 1024.0),
+                               process_used / (1024.0 * 1024.0 * 1024.0),
+                               non_pool / (1024.0 * 1024.0 * 1024.0));
+                    }
                 }
             } else {
                 LOG_ERROR("cudaMallocAsync failed for {} bytes: {}",

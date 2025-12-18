@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "core_new/logger.hpp"
+#include "core_new/console_overlay.hpp"
 #include <array>
 #include <cstdio>
 #include <mutex>
@@ -33,6 +34,7 @@ namespace lfs::core {
 
         protected:
             void sink_it_(const spdlog::details::log_msg& msg) override {
+                ConsoleOverlay::ScopedSuspend overlay;
                 const auto time_t_val = std::chrono::system_clock::to_time_t(msg.time);
                 const auto tm = *std::localtime(&time_t_val);
                 const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(

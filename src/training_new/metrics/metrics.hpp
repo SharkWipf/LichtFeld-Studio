@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../dataset.hpp"
+#include "core_new/console_overlay.hpp"
 #include "core_new/parameters.hpp"
 #include "core_new/splat_data.hpp"
 #include "core_new/tensor.hpp"
@@ -117,6 +118,7 @@ namespace lfs::training {
 
         // Print evaluation header
         void print_evaluation_header(const int iteration) const {
+            lfs::core::ConsoleOverlay::ScopedSuspend overlay;
             std::cout << std::endl;
             std::cout << "[Evaluation at step " << iteration << "]" << std::endl;
         }

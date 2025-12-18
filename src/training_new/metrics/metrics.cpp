@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "metrics.hpp"
+#include "../rasterization/fast_rasterizer.hpp"
 #include "core_new/image_io.hpp"
 #include "core_new/splat_data.hpp"
-#include "../rasterization/fast_rasterizer.hpp"
 #include "lfs/kernels/ssim.cuh"
 #include <chrono>
 #include <cmath>
@@ -86,6 +86,7 @@ namespace lfs::training {
     void MetricsReporter::save_report() const {
         std::ofstream report_file(txt_path_);
         if (!report_file.is_open()) {
+            lfs::core::ConsoleOverlay::ScopedSuspend overlay;
             std::cerr << "Failed to open report file: " << txt_path_ << std::endl;
             return;
         }
@@ -149,8 +150,11 @@ namespace lfs::training {
         }
 
         report_file.close();
-        std::cout << "Evaluation report saved to: " << txt_path_ << std::endl;
-        std::cout << "Metrics CSV saved to: " << csv_path_ << std::endl;
+        {
+            lfs::core::ConsoleOverlay::ScopedSuspend overlay;
+            std::cout << "Evaluation report saved to: " << txt_path_ << std::endl;
+            std::cout << "Metrics CSV saved to: " << csv_path_ << std::endl;
+        }
     }
 
     // MetricsEvaluator Implementation
@@ -324,7 +328,10 @@ namespace lfs::training {
         _reporter->add_metrics(result);
 
         if (_params.optimization.enable_save_eval_images) {
-            std::cout << "Saved " << image_idx << " evaluation images to: " << eval_dir << std::endl;
+            {
+                lfs::core::ConsoleOverlay::ScopedSuspend overlay;
+                std::cout << "Saved " << image_idx << " evaluation images to: " << eval_dir << std::endl;
+            }
         }
 
         return result;
