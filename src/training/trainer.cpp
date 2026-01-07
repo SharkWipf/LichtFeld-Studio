@@ -1385,6 +1385,7 @@ namespace lfs::training {
                     lfs::training::TrainingPhase::SafeControl);
                 lfs::training::ControlBoundary::instance().notify(lfs::training::ControlHook::TrainingEnd, ctx);
             }
+            lfs::training::ControlBoundary::instance().drain_callbacks();
 
             lfs::training::CommandCenter::instance().set_phase(lfs::training::TrainingPhase::Idle);
 

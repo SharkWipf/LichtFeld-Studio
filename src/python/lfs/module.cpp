@@ -20,6 +20,7 @@
 #include "visualizer/core/services.hpp"
 #include "visualizer/scene/scene_manager.hpp"
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,22 @@ namespace {
     using lfs::training::HookContext;
     using lfs::training::SelectionKind;
     using lfs::training::TrainingPhase;
+
+    std::atomic<bool> g_keyboard_interrupt_seen{false};
+
+    bool is_keyboard_interrupt(const std::exception& e) {
+        const std::string msg = e.what();
+        return msg.find("KeyboardInterrupt") != std::string::npos;
+    }
+
+    void handle_keyboard_interrupt(const HookContext& ctx) {
+        if (!g_keyboard_interrupt_seen.exchange(true)) {
+            LOG_WARN("KeyboardInterrupt received in Python hook; requesting stop");
+        }
+        if (ctx.trainer) {
+            ctx.trainer->request_stop();
+        }
+    }
 
     // RAII session that registers Python callbacks to the control boundary
     class PyControlSession {
@@ -66,7 +83,17 @@ namespace {
             nb::object fn_obj = std::move(fn);
             auto cb = [fn_obj](const HookContext& ctx) {
                 nb::gil_scoped_acquire gil;
-                fn_obj(ctx.iteration, ctx.loss, ctx.num_gaussians, ctx.is_refining);
+                try {
+                    fn_obj(ctx.iteration, ctx.loss, ctx.num_gaussians, ctx.is_refining);
+                } catch (const nb::python_error& e) {
+                    if (is_keyboard_interrupt(e)) {
+                        handle_keyboard_interrupt(ctx);
+                        return;
+                    }
+                    LOG_ERROR("Python hook threw: {}", e.what());
+                } catch (const std::exception& e) {
+                    LOG_ERROR("Python hook threw: {}", e.what());
+                }
             };
 
             const auto id = ControlBoundary::instance().register_callback(hook, std::move(cb));
@@ -277,6 +304,12 @@ namespace {
                 d["num_splats"] = ctx.num_gaussians;
                 d["is_refining"] = ctx.is_refining;
                 ocb(d);
+            } catch (const nb::python_error& e) {
+                if (is_keyboard_interrupt(e)) {
+                    handle_keyboard_interrupt(ctx);
+                    return;
+                }
+                LOG_ERROR("Python hook threw: {}", e.what());
             } catch (const std::exception& e) {
                 LOG_ERROR("Python hook threw: {}", e.what());
             }
