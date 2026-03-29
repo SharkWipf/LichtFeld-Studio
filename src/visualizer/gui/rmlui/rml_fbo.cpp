@@ -9,13 +9,66 @@
 #include "gui/rmlui/rml_fbo.hpp"
 #include "core/logger.hpp"
 
+#include <SDL3/SDL_video.h>
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <imgui.h>
 
 namespace lfs::vis::gui {
 
     namespace {
+        struct FramebufferBlitGeometry {
+            float x = 0.0f;
+            float y = 0.0f;
+            float w = 0.0f;
+            float h = 0.0f;
+            float clip_x1 = 0.0f;
+            float clip_y1 = 0.0f;
+            float clip_x2 = 0.0f;
+            float clip_y2 = 0.0f;
+            int screen_w = 0;
+            int screen_h = 0;
+        };
+
+        FramebufferBlitGeometry toFramebufferBlitGeometry(float x, float y, float w, float h,
+                                                          int screen_w, int screen_h,
+                                                          float clip_x1, float clip_y1,
+                                                          float clip_x2, float clip_y2) {
+            FramebufferBlitGeometry rect{x, y, w, h, clip_x1, clip_y1, clip_x2, clip_y2,
+                                         screen_w, screen_h};
+            if (screen_w <= 0 || screen_h <= 0)
+                return rect;
+
+            SDL_Window* const window = SDL_GL_GetCurrentWindow();
+            if (!window)
+                return rect;
+
+            int framebuffer_w = 0;
+            int framebuffer_h = 0;
+            SDL_GetWindowSizeInPixels(window, &framebuffer_w, &framebuffer_h);
+            if (framebuffer_w <= 0 || framebuffer_h <= 0)
+                return rect;
+
+            const float scale_x = static_cast<float>(framebuffer_w) / static_cast<float>(screen_w);
+            const float scale_y = static_cast<float>(framebuffer_h) / static_cast<float>(screen_h);
+            const float x1 = std::floor(x * scale_x);
+            const float y1 = std::floor(y * scale_y);
+            const float x2 = std::ceil((x + w) * scale_x);
+            const float y2 = std::ceil((y + h) * scale_y);
+            rect.x = x1;
+            rect.y = y1;
+            rect.w = std::max(1.0f, x2 - x1);
+            rect.h = std::max(1.0f, y2 - y1);
+            rect.clip_x1 = std::floor(clip_x1 * scale_x);
+            rect.clip_y1 = std::floor(clip_y1 * scale_y);
+            rect.clip_x2 = std::ceil(clip_x2 * scale_x);
+            rect.clip_y2 = std::ceil(clip_y2 * scale_y);
+            rect.screen_w = framebuffer_w;
+            rect.screen_h = framebuffer_h;
+            return rect;
+        }
+
         void setPremultipliedBlend(const ImDrawList*, const ImDrawCmd*) {
             glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA,
                                 GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -190,11 +243,13 @@ namespace lfs::vis::gui {
                                      float clip_x2, float clip_y2) const {
         assert(texture_);
         assert(screen_w > 0 && screen_h > 0);
-        (void)screen_w;
         if (w <= 0.0f || h <= 0.0f)
             return;
         if (clip_x2 <= clip_x1 || clip_y2 <= clip_y1)
             return;
+
+        const auto blit_rect = toFramebufferBlitGeometry(
+            x, y, w, h, screen_w, screen_h, clip_x1, clip_y1, clip_x2, clip_y2);
 
         ensureBlitProgram();
 
@@ -243,19 +298,19 @@ namespace lfs::vis::gui {
             glGetIntegerv(GL_SCISSOR_BOX, prev_scissor_box);
         glGetIntegerv(GL_VIEWPORT, prev_viewport);
 
-        glViewport(static_cast<GLint>(x),
-                   screen_h - static_cast<GLint>(y + h),
-                   static_cast<GLsizei>(w),
-                   static_cast<GLsizei>(h));
+        glViewport(static_cast<GLint>(blit_rect.x),
+                   blit_rect.screen_h - static_cast<GLint>(blit_rect.y + blit_rect.h),
+                   static_cast<GLsizei>(blit_rect.w),
+                   static_cast<GLsizei>(blit_rect.h));
 
         glEnable(GL_BLEND);
         glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_SCISSOR_TEST);
-        glScissor(static_cast<GLint>(clip_x1),
-                  screen_h - static_cast<GLint>(clip_y2),
-                  static_cast<GLsizei>(clip_x2 - clip_x1),
-                  static_cast<GLsizei>(clip_y2 - clip_y1));
+        glScissor(static_cast<GLint>(blit_rect.clip_x1),
+                  blit_rect.screen_h - static_cast<GLint>(blit_rect.clip_y2),
+                  static_cast<GLsizei>(blit_rect.clip_x2 - blit_rect.clip_x1),
+                  static_cast<GLsizei>(blit_rect.clip_y2 - blit_rect.clip_y1));
 
         glUseProgram(blit_program_);
         glActiveTexture(GL_TEXTURE0);

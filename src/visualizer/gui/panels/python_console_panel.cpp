@@ -262,6 +262,21 @@ namespace {
         }
     }
 
+    void toolbar_same_line_or_wrap(float next_item_width) {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float cursor_x = ImGui::GetCursorPosX();
+        const float max_x = ImGui::GetContentRegionAvail().x + cursor_x;
+        const float required_x = cursor_x + style.ItemSpacing.x + next_item_width;
+        if (required_x <= max_x) {
+            ImGui::SameLine();
+        }
+    }
+
+    float toolbar_item_width(const char* label) {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        return ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f;
+    }
+
 } // namespace
 
 namespace lfs::vis::gui::panels {
@@ -939,7 +954,7 @@ namespace lfs::vis::gui::panels {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Clear editor (Ctrl+N)");
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Load"));
 
         // Load button
         if (ImGui::Button("Load")) {
@@ -948,7 +963,7 @@ namespace lfs::vis::gui::panels {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Load script (Ctrl+O)");
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Reload"));
 
         // Reload button
         const bool has_script = !state.getScriptPath().empty();
@@ -971,7 +986,7 @@ namespace lfs::vis::gui::panels {
             }
         }
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Save"));
 
         // Save button
         if (ImGui::Button("Save")) {
@@ -980,7 +995,7 @@ namespace lfs::vis::gui::panels {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Save script (Ctrl+S)");
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Format"));
 
         // Format button
         if (ImGui::Button("Format")) {
@@ -989,12 +1004,12 @@ namespace lfs::vis::gui::panels {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Format code (Ctrl+Shift+F)");
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Vim"));
         draw_vim_mode_button(state, t);
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(ImGui::CalcTextSize("|").x);
         ImGui::TextColored(t.palette.text_dim, "|");
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Run"));
 
         // Run button
         ImGui::PushStyleColor(ImGuiCol_Button, t.palette.success);
@@ -1009,7 +1024,7 @@ namespace lfs::vis::gui::panels {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Run script (F5)");
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Stop"));
 
         // Stop button
         const bool has_animation = python::has_frame_callback();
@@ -1046,7 +1061,7 @@ namespace lfs::vis::gui::panels {
                 ImGui::SetTooltip("Stop running script (Ctrl+C)");
         }
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Reset"));
 
         // Reset button
         if (ImGui::Button("Reset")) {
@@ -1055,7 +1070,7 @@ namespace lfs::vis::gui::panels {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Reset Python state (Ctrl+R)");
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(toolbar_item_width("Clear"));
 
         // Clear button
         if (ImGui::Button("Clear")) {
@@ -1064,9 +1079,9 @@ namespace lfs::vis::gui::panels {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Clear console (Ctrl+L)");
 
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(ImGui::CalcTextSize("|").x);
         ImGui::TextColored(t.palette.text_dim, "|");
-        ImGui::SameLine();
+        toolbar_same_line_or_wrap(ImGui::CalcTextSize(can_stop ? "Running..." : "Python").x);
 
         // Status indicator
         if (can_stop) {

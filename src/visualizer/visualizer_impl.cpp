@@ -1083,11 +1083,36 @@ namespace lfs::vis {
         if (gui_manager_) {
             auto pos = gui_manager_->getViewportPos();
             auto size = gui_manager_->getViewportSize();
+            const glm::ivec2 window_size = window_manager_->getWindowSize();
+            const glm::ivec2 framebuffer_size = window_manager_->getFramebufferSize();
 
-            viewport_region.x = pos.x;
-            viewport_region.y = pos.y;
-            viewport_region.width = size.x;
-            viewport_region.height = size.y;
+            if (window_size.x > 0 && window_size.y > 0 &&
+                framebuffer_size.x > 0 && framebuffer_size.y > 0) {
+                const float scale_x = static_cast<float>(framebuffer_size.x) / static_cast<float>(window_size.x);
+                const float scale_y = static_cast<float>(framebuffer_size.y) / static_cast<float>(window_size.y);
+                const int viewport_x = std::max(0, static_cast<int>(std::floor(pos.x * scale_x)));
+                const int viewport_y = std::max(0, static_cast<int>(std::floor(pos.y * scale_y)));
+                const int viewport_right = std::min(
+                    framebuffer_size.x,
+                    std::max(viewport_x + 1,
+                             static_cast<int>(std::ceil((pos.x + size.x) * scale_x))));
+                const int viewport_bottom = std::min(
+                    framebuffer_size.y,
+                    std::max(viewport_y + 1,
+                             static_cast<int>(std::ceil((pos.y + size.y) * scale_y))));
+                const int viewport_width = std::max(1, viewport_right - viewport_x);
+                const int viewport_height = std::max(1, viewport_bottom - viewport_y);
+
+                viewport_region.x = static_cast<float>(viewport_x);
+                viewport_region.y = static_cast<float>(viewport_y);
+                viewport_region.width = static_cast<float>(viewport_width);
+                viewport_region.height = static_cast<float>(viewport_height);
+            } else {
+                viewport_region.x = pos.x;
+                viewport_region.y = pos.y;
+                viewport_region.width = size.x;
+                viewport_region.height = size.y;
+            }
 
             has_viewport_region = true;
         }
